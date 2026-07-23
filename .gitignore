@@ -12,3 +12,13 @@ target/
 
 # OS
 .DS_Store
+
+# Secrets — NEVER commit GCP service-account keys
+secrets/
+*.json.key
+*-sa.json
+*service-account*.json
+gcp-*.json
+!src/**/*.json
+.env
+.env.*
