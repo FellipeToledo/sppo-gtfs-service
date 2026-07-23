@@ -116,7 +116,7 @@ public class BigQueryGtfsLoaderAdapter implements GtfsLoaderPort {
                     str(row, "route_id"),
                     str(row, "shape_id"),
                     str(row, "sentido"),
-                    str(row, "evento"),
+                    cleanEvento(str(row, "evento")),
                     str(row, "modo"),
                     bool(row, "alternative")));
         }
@@ -184,6 +184,26 @@ public class BigQueryGtfsLoaderAdapter implements GtfsLoaderPort {
         } catch (Exception e) {
             throw new IllegalStateException("BigQuery query failed: " + e.getMessage(), e);
         }
+    }
+
+    /**
+     * SMTR stores {@code evento} as a stringified list, e.g. {@code "[desvio_tunel]"}.
+     * Strip the surrounding brackets/quotes so the payload carries a clean token
+     * ({@code "desvio_tunel"}); return null when empty.
+     */
+    static String cleanEvento(String raw) {
+        if (raw == null) {
+            return null;
+        }
+        String s = raw.trim();
+        if (s.startsWith("[") && s.endsWith("]") && s.length() >= 2) {
+            s = s.substring(1, s.length() - 1).trim();
+        }
+        if (s.length() >= 2
+                && ((s.startsWith("\"") && s.endsWith("\"")) || (s.startsWith("'") && s.endsWith("'")))) {
+            s = s.substring(1, s.length() - 1).trim();
+        }
+        return s.isEmpty() ? null : s;
     }
 
     private static String str(FieldValueList row, String name) {
