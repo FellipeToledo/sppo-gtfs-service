@@ -13,7 +13,7 @@ public interface ReloadIndexPort {
      */
     ReloadResult reload();
 
-    record ReloadResult(String feedVersionId, long routesIndexed, long shapesIndexed,
+    record ReloadResult(String feedVersionId, long linesIndexed, long shapesIndexed,
                         double durationSeconds) {
     }
 }

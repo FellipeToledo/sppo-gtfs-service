@@ -21,26 +21,15 @@ public class GtfsServiceConfig {
         return new GtfsIndexBuilder();
     }
 
+    /**
+     * Single service bean implementing both {@link GtfsQueryPort} and {@link ReloadIndexPort};
+     * consumers inject by either interface.
+     */
     @Bean
     public GtfsQueryService gtfsQueryService(GtfsLoaderPort loader, GtfsIndexBuilder builder,
                                              MetricsPort metrics, GtfsProperties props) {
-        var filter = new GtfsIndexBuilder.FilterConfig(
-                props.getFilter().getRouteTypes(),
-                props.getFilter().isExcludeBrt(),
-                props.getFilter().getBrtAgencyIds(),
-                props.getFilter().getBrtLinePrefixes());
-        var settings = new GtfsQueryService.Settings(
-                filter, props.getFeed().getSource(), props.getFeed().getFallbackId());
+        var filter = new GtfsIndexBuilder.FilterConfig(props.getFilter().getModos());
+        var settings = new GtfsQueryService.Settings(filter, props.getFeed().getSource());
         return new GtfsQueryService(loader, builder, metrics, settings);
-    }
-
-    @Bean
-    public GtfsQueryPort gtfsQueryPort(GtfsQueryService service) {
-        return service;
-    }
-
-    @Bean
-    public ReloadIndexPort reloadIndexPort(GtfsQueryService service) {
-        return service;
     }
 }

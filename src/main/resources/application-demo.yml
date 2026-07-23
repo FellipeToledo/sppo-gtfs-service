@@ -1,0 +1,6 @@
+# Local demo profile: in-memory loader (no BigQuery, no credentials). NOT for production.
+# Activate with: --spring.profiles.active=demo
+sppo:
+  gtfs:
+    reload:
+      on-startup: true

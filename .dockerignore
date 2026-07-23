@@ -6,3 +6,12 @@ target/
 *.log
 README.md
 docker-compose.yml
+
+# Never let secrets into the build context / image
+secrets/
+*.json.key
+*-sa.json
+*service-account*.json
+gcp-*.json
+.env
+.env.*

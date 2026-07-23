@@ -3,7 +3,7 @@ package com.fajtech.sppogtfs.application.service;
 import com.fajtech.sppogtfs.application.port.in.GtfsQueryPort;
 import com.fajtech.sppogtfs.application.port.in.ReloadIndexPort;
 import com.fajtech.sppogtfs.application.port.out.GtfsLoaderPort;
-import com.fajtech.sppogtfs.application.port.out.GtfsLoaderPort.RawFeedInfo;
+import com.fajtech.sppogtfs.application.port.out.GtfsLoaderPort.FeedInfo;
 import com.fajtech.sppogtfs.application.port.out.MetricsPort;
 import com.fajtech.sppogtfs.domain.FeedVersion;
 import com.fajtech.sppogtfs.domain.LineCode;
@@ -11,8 +11,6 @@ import com.fajtech.sppogtfs.domain.LineItinerary;
 import com.fajtech.sppogtfs.domain.RouteShape;
 
 import java.time.Instant;
-import java.time.ZoneOffset;
-import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -28,12 +26,8 @@ import java.util.concurrent.atomic.AtomicReference;
 public class GtfsQueryService implements GtfsQueryPort, ReloadIndexPort {
 
     /** Configuration the service needs, decoupled from any Spring properties type. */
-    public record Settings(GtfsIndexBuilder.FilterConfig filter, String feedSource,
-                           String fallbackFeedId) {
+    public record Settings(GtfsIndexBuilder.FilterConfig filter, String feedSource) {
     }
-
-    private static final DateTimeFormatter MONTH_ID =
-            DateTimeFormatter.ofPattern("yyyy-MM").withZone(ZoneOffset.UTC);
 
     private final GtfsLoaderPort loader;
     private final GtfsIndexBuilder builder;
@@ -125,7 +119,8 @@ public class GtfsQueryService implements GtfsQueryPort, ReloadIndexPort {
     @Override
     public FeedSnapshot feedSnapshot() {
         GtfsIndex index = indexRef.get();
-        return new FeedSnapshot(index.feedVersion(), index.linesIndexed(), index.shapesIndexed());
+        return new FeedSnapshot(index.feedVersion(), index.linesIndexed(),
+                index.shapesIndexed());
     }
 
     // --- Reload --------------------------------------------------------------
@@ -135,9 +130,8 @@ public class GtfsQueryService implements GtfsQueryPort, ReloadIndexPort {
         long start = System.nanoTime();
         FeedVersion feedVersion = resolveFeedVersion();
         GtfsIndex fresh = builder.build(
-                loader.loadRoutes(),
-                loader.loadTrips(),
-                loader.loadShapePoints(),
+                loader.loadPlannedShapeRefs(),
+                loader.loadShapeGeometries(),
                 feedVersion,
                 settings.filter());
         indexRef.set(fresh); // atomic reference swap — no downtime
@@ -161,21 +155,15 @@ public class GtfsQueryService implements GtfsQueryPort, ReloadIndexPort {
     }
 
     private FeedVersion resolveFeedVersion() {
-        Optional<RawFeedInfo> info = loader.loadFeedInfo();
-        if (info.isPresent() && info.get().feedVersion() != null
-                && !info.get().feedVersion().isBlank()) {
-            RawFeedInfo fi = info.get();
-            Instant publishedAt = fi.startDate() != null ? fi.startDate() : Instant.now();
-            String source = fi.publisherName() != null ? fi.publisherName() : settings.feedSource();
-            return new FeedVersion(fi.feedVersion(), publishedAt, source);
+        FeedInfo fi = loader.currentFeed();
+        if (fi != null && fi.feedVersion() != null && !fi.feedVersion().isBlank()) {
+            Instant publishedAt = fi.publishedAt() != null ? fi.publishedAt() : Instant.now();
+            return new FeedVersion(fi.feedVersion(), publishedAt, settings.feedSource());
         }
         return bootstrapFeedVersion();
     }
 
     private FeedVersion bootstrapFeedVersion() {
-        String id = settings.fallbackFeedId() != null && !settings.fallbackFeedId().isBlank()
-                ? settings.fallbackFeedId()
-                : MONTH_ID.format(Instant.now());
-        return new FeedVersion(id, Instant.now(), settings.feedSource());
+        return new FeedVersion("unloaded", Instant.now(), settings.feedSource());
     }
 }

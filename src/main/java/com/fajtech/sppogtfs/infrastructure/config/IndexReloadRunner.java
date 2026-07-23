@@ -43,7 +43,7 @@ public class IndexReloadRunner {
         try {
             var result = reload.reload();
             log.info("GTFS index reloaded [{}] feedVersion={} lines={} shapes={} in {}s",
-                    trigger, result.feedVersionId(), result.routesIndexed(),
+                    trigger, result.feedVersionId(), result.linesIndexed(),
                     result.shapesIndexed(), String.format("%.2f", result.durationSeconds()));
         } catch (Exception e) {
             log.error("GTFS index reload [{}] failed: {}", trigger, e.getMessage(), e);

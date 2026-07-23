@@ -7,8 +7,8 @@ import com.fajtech.sppogtfs.domain.LineItinerary;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import java.time.Instant;
 import java.util.List;
-import java.util.Optional;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -19,71 +19,73 @@ class GtfsQueryServiceTest {
 
     @BeforeEach
     void setUp() {
-        List<GtfsLoaderPort.RawRoute> routes = List.of(
-                new GtfsLoaderPort.RawRoute("R100", "100", "Rodoviária <-> Praça XV", 3, "SPPO"),
-                new GtfsLoaderPort.RawRoute("R200", "200", "Line with no shapes", 3, "SPPO"),
-                new GtfsLoaderPort.RawRoute("RBRT", "BRT1", "Transoeste", 3, "BRT"),
-                new GtfsLoaderPort.RawRoute("RTRAIN", "T1", "A train", 2, "SUPERVIA"));
+        List<GtfsLoaderPort.PlannedShapeRef> refs = List.of(
+                // line 100: ida + volta (regular), plus an alternate ida trajectory
+                new GtfsLoaderPort.PlannedShapeRef("100", "R100", "s100i", "I", null, "Ônibus", false),
+                new GtfsLoaderPort.PlannedShapeRef("100", "R100", "s100i", "I", null, "Ônibus", false),
+                new GtfsLoaderPort.PlannedShapeRef("100", "R100", "s100v", "V", null, "Ônibus", false),
+                new GtfsLoaderPort.PlannedShapeRef("100", "R100", "s100alt", "I", "Desvio", "Ônibus", true),
+                // line 200: referenced but its shape has no geometry -> no_shapes
+                new GtfsLoaderPort.PlannedShapeRef("200", "R200", "s200", "I", null, "Ônibus", false),
+                // BRT service: filtered out entirely by modo
+                new GtfsLoaderPort.PlannedShapeRef("LECD05", "RBRT", "sbrt", "I", null, "BRT", false));
 
-        List<GtfsLoaderPort.RawTrip> trips = List.of(
-                new GtfsLoaderPort.RawTrip("R100", "S100_0", 0, "Praça XV"),
-                new GtfsLoaderPort.RawTrip("R100", "S100_0", 0, "Praça XV"), // most frequent
-                new GtfsLoaderPort.RawTrip("R100", "S100_1", 1, "Rodoviária"),
-                new GtfsLoaderPort.RawTrip("R200", null, 0, "Nowhere"),      // no shape
-                new GtfsLoaderPort.RawTrip("RBRT", "SBRT", 0, "BRT"),
-                new GtfsLoaderPort.RawTrip("RTRAIN", "STRAIN", 0, "Train"));
+        List<GtfsLoaderPort.ShapeGeometry> geoms = List.of(
+                new GtfsLoaderPort.ShapeGeometry("s100i",
+                        "LINESTRING(-43.20 -22.90, -43.20 -22.91, -43.19 -22.92)"),
+                new GtfsLoaderPort.ShapeGeometry("s100v",
+                        "LINESTRING(-43.19 -22.92, -43.20 -22.91, -43.20 -22.90)"),
+                new GtfsLoaderPort.ShapeGeometry("s100alt",
+                        "LINESTRING(-43.20 -22.90, -43.195 -22.908, -43.19 -22.92)"),
+                new GtfsLoaderPort.ShapeGeometry("sbrt",
+                        "LINESTRING(-43.40 -22.95, -43.41 -22.96)"));
 
-        List<GtfsLoaderPort.RawShapePoint> points = List.of(
-                new GtfsLoaderPort.RawShapePoint("S100_0", 2, -22.91, -43.20),
-                new GtfsLoaderPort.RawShapePoint("S100_0", 1, -22.90, -43.20), // out of order
-                new GtfsLoaderPort.RawShapePoint("S100_1", 1, -22.91, -43.20),
-                new GtfsLoaderPort.RawShapePoint("S100_1", 2, -22.90, -43.20),
-                new GtfsLoaderPort.RawShapePoint("SBRT", 1, -22.95, -43.40),
-                new GtfsLoaderPort.RawShapePoint("SBRT", 2, -22.96, -43.41),
-                new GtfsLoaderPort.RawShapePoint("STRAIN", 1, -22.80, -43.10),
-                new GtfsLoaderPort.RawShapePoint("STRAIN", 2, -22.81, -43.11));
-
-        GtfsLoaderPort loader = new FakeLoader(routes, trips, points);
-        var filter = new GtfsIndexBuilder.FilterConfig(Set.of(3), true, Set.of("BRT"), List.of());
-        var settings = new GtfsQueryService.Settings(filter, "test", "2026-07");
-        service = new GtfsQueryService(loader, new GtfsIndexBuilder(),
-                new NoopMetrics(), settings);
+        GtfsLoaderPort loader = new FakeLoader(refs, geoms);
+        var filter = new GtfsIndexBuilder.FilterConfig(Set.of("Ônibus"));
+        var settings = new GtfsQueryService.Settings(filter, "test");
+        service = new GtfsQueryService(loader, new GtfsIndexBuilder(), new NoopMetrics(), settings);
         service.reload();
     }
 
     @Test
-    void lineWithMultipleShapesReturnsDistinctDedupedShapes() {
+    void lineReturnsDistinctShapesIncludingAlternate() {
         LineItinerary it = service.findLineShapes("100", 0).orElseThrow();
-        assertThat(it.shapes()).hasSize(2);
+        assertThat(it.shapes()).hasSize(3);
         assertThat(it.resolution()).isEqualTo(LineItinerary.Resolution.EXACT);
         assertThat(it.shapes().stream().map(s -> s.shapeId()))
-                .containsExactlyInAnyOrder("S100_0", "S100_1");
+                .containsExactlyInAnyOrder("s100i", "s100v", "s100alt");
     }
 
     @Test
-    void representativeTripDrivesDirectionAndHeadsign() {
+    void sentidoMapsToDirectionIdAndEventoIsCarried() {
         LineItinerary it = service.findLineShapes("100", 0).orElseThrow();
-        var s0 = it.shapes().stream().filter(s -> s.shapeId().equals("S100_0")).findFirst().orElseThrow();
-        assertThat(s0.directionId()).isEqualTo(0);
-        assertThat(s0.headsign()).isEqualTo("Praça XV");
+        var ida = it.shapes().stream().filter(s -> s.shapeId().equals("s100i")).findFirst().orElseThrow();
+        var volta = it.shapes().stream().filter(s -> s.shapeId().equals("s100v")).findFirst().orElseThrow();
+        var alt = it.shapes().stream().filter(s -> s.shapeId().equals("s100alt")).findFirst().orElseThrow();
+        assertThat(ida.directionId()).isEqualTo(0);
+        assertThat(ida.sentido()).isEqualTo("I");
+        assertThat(volta.directionId()).isEqualTo(1);
+        assertThat(alt.evento()).isEqualTo("Desvio");
     }
 
     @Test
-    void pointsAreOrderedBySequence() {
+    void geometryIsParsedFromWktInOrder() {
         LineItinerary it = service.findLineShapes("100", 0).orElseThrow();
-        var s0 = it.shapes().stream().filter(s -> s.shapeId().equals("S100_0")).findFirst().orElseThrow();
-        assertThat(s0.points().get(0).latitude()).isEqualTo(-22.90); // seq 1 first
+        var ida = it.shapes().stream().filter(s -> s.shapeId().equals("s100i")).findFirst().orElseThrow();
+        assertThat(ida.pointCount()).isEqualTo(3);
+        assertThat(ida.points().get(0).latitude()).isEqualTo(-22.90);
+        assertThat(ida.points().get(0).longitude()).isEqualTo(-43.20);
     }
 
     @Test
     void relaxedFallbackMatchesLeadingZeros() {
         LineItinerary it = service.findLineShapes("0100", 0).orElseThrow();
         assertThat(it.resolution()).isEqualTo(LineItinerary.Resolution.RELAXED);
-        assertThat(it.shapes()).hasSize(2);
+        assertThat(it.shapes()).hasSize(3);
     }
 
     @Test
-    void existingLineWithoutShapesResolvesAsNoShapes() {
+    void existingLineWithoutGeometryResolvesAsNoShapes() {
         LineItinerary it = service.findLineShapes("200", 0).orElseThrow();
         assertThat(it.shapes()).isEmpty();
         assertThat(it.resolution()).isEqualTo(LineItinerary.Resolution.NO_SHAPES);
@@ -95,9 +97,8 @@ class GtfsQueryServiceTest {
     }
 
     @Test
-    void brtAndNonBusRoutesAreFilteredOut() {
-        assertThat(service.findLineShapes("BRT1", 0)).isEmpty();
-        assertThat(service.findLineShapes("T1", 0)).isEmpty();
+    void brtServiceIsFilteredOut() {
+        assertThat(service.findLineShapes("LECD05", 0)).isEmpty();
     }
 
     @Test
@@ -108,33 +109,28 @@ class GtfsQueryServiceTest {
     }
 
     @Test
-    void feedSnapshotReportsCounts() {
+    void feedSnapshotReflectsLoaderFeedAndCounts() {
         var snap = service.feedSnapshot();
-        assertThat(snap.feedVersion().id()).isEqualTo("2026-07");
-        assertThat(snap.routesIndexed()).isEqualTo(2); // 100 and 200 (buses, non-BRT)
-        assertThat(snap.shapesIndexed()).isEqualTo(2); // S100_0, S100_1
+        assertThat(snap.feedVersion().id()).isEqualTo("FV-1");
+        assertThat(snap.linesIndexed()).isEqualTo(2); // 100 and 200 (BRT excluded)
+        assertThat(snap.shapesIndexed()).isEqualTo(3); // s100i, s100v, s100alt (sbrt filtered, s200 no geom)
     }
 
-    private record FakeLoader(List<RawRoute> routes, List<RawTrip> trips,
-                              List<RawShapePoint> points) implements GtfsLoaderPort {
+    private record FakeLoader(List<PlannedShapeRef> refs, List<ShapeGeometry> geoms)
+            implements GtfsLoaderPort {
         @Override
-        public List<RawRoute> loadRoutes() {
-            return routes;
+        public FeedInfo currentFeed() {
+            return new FeedInfo("FV-1", Instant.parse("2026-07-19T00:00:00Z"));
         }
 
         @Override
-        public List<RawTrip> loadTrips() {
-            return trips;
+        public List<PlannedShapeRef> loadPlannedShapeRefs() {
+            return refs;
         }
 
         @Override
-        public List<RawShapePoint> loadShapePoints() {
-            return points;
-        }
-
-        @Override
-        public Optional<RawFeedInfo> loadFeedInfo() {
-            return Optional.empty();
+        public List<ShapeGeometry> loadShapeGeometries() {
+            return geoms;
         }
     }
 
