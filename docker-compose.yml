@@ -1,0 +1,31 @@
+# Local dev: the service + a Postgres seeded with a small GTFS sample.
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: gtfs
+      POSTGRES_USER: gtfs
+      POSTGRES_PASSWORD: gtfs
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./docker/sample-gtfs.sql:/docker-entrypoint-initdb.d/10-sample-gtfs.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U gtfs -d gtfs"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  gtfs-service:
+    build: .
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      GTFS_DB_URL: jdbc:postgresql://db:5432/gtfs
+      GTFS_DB_USER: gtfs
+      GTFS_DB_PASSWORD: gtfs
+      # GTFS_API_KEY: change-me         # uncomment to require X-Api-Key on /api/**
+      # GTFS_ADMIN_KEY: change-me-admin # required for /internal/reload
+    ports:
+      - "8080:8080"
