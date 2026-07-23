@@ -55,6 +55,12 @@
             <artifactId>postgresql</artifactId>
             <scope>runtime</scope>
         </dependency>
+        <!-- Local 'demo' profile only: in-memory DB in PostgreSQL mode. Unused in prod. -->
+        <dependency>
+            <groupId>com.h2database</groupId>
+            <artifactId>h2</artifactId>
+            <scope>runtime</scope>
+        </dependency>
 
         <!-- Test -->
         <dependency>

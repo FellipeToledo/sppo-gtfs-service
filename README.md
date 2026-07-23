@@ -160,6 +160,17 @@ mvn -B test                     # unit + web-slice tests
 mvn -B verify                   # also runs the Testcontainers persistence IT (needs Docker)
 ```
 
+### Demo profile (no external DB)
+
+For a quick local run without any database, the `demo` profile uses an in-memory H2 (in
+PostgreSQL mode) seeded with the fictional sample in `src/main/resources/demo-gtfs.sql`.
+It exercises the full app (index build + REST). **Not for production.**
+
+```bash
+java -jar target/sppo-gtfs-service-*.jar --spring.profiles.active=demo
+curl http://localhost:8080/api/v1/lines/100/shapes
+```
+
 ## Testing
 
 - **Domain** (TDD units): `LineCode` normalization, polyline encode/decode, bbox, haversine,
