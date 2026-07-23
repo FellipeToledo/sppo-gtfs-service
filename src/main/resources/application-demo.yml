@@ -1,14 +1,6 @@
-# Local demo profile: in-memory H2 in PostgreSQL mode, seeded with fictional sample data.
-# NOT for production. Activate with: --spring.profiles.active=demo
-spring:
-  datasource:
-    url: jdbc:h2:mem:gtfs;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1
-    username: sa
-    password: ""
-    driver-class-name: org.h2.Driver
-  sql:
-    init:
-      mode: always
-      schema-locations: classpath:demo-gtfs.sql
-  jpa:
-    defer-datasource-initialization: true
+# Local demo profile: in-memory loader (no BigQuery, no credentials). NOT for production.
+# Activate with: --spring.profiles.active=demo
+sppo:
+  gtfs:
+    reload:
+      on-startup: true

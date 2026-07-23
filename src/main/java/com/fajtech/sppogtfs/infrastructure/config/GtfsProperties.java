@@ -11,10 +11,19 @@ import java.util.Set;
 @ConfigurationProperties(prefix = "sppo.gtfs")
 public class GtfsProperties {
 
+    private Bigquery bigquery = new Bigquery();
     private Filter filter = new Filter();
     private Reload reload = new Reload();
     private Api api = new Api();
     private Feed feed = new Feed();
+
+    public Bigquery getBigquery() {
+        return bigquery;
+    }
+
+    public void setBigquery(Bigquery bigquery) {
+        this.bigquery = bigquery;
+    }
 
     public Filter getFilter() {
         return filter;
@@ -48,45 +57,82 @@ public class GtfsProperties {
         this.feed = feed;
     }
 
+    public static class Bigquery {
+        /** GCP project that hosts the datasets (billing/execution project). */
+        private String projectId = "";
+        /** Dataset holding the planning tables. */
+        private String dataset = "planejamento";
+        /** Fully-qualified table (project.dataset.table) for planned trips. */
+        private String viagemPlanejadaTable = "rj-smtr.planejamento.viagem_planejada_dia";
+        /** Fully-qualified table for shape geometry. */
+        private String shapesGeomTable = "rj-smtr.planejamento.shapes_geom";
+        /** BigQuery processing location (e.g. US, southamerica-east1). */
+        private String location = "US";
+        /**
+         * How many days back from the latest planned partition to scan, to capture all
+         * day-type variations (Dia Útil / Sábado / Domingo) within the current feed.
+         */
+        private int plannedLookbackDays = 14;
+
+        public String getProjectId() {
+            return projectId;
+        }
+
+        public void setProjectId(String projectId) {
+            this.projectId = projectId;
+        }
+
+        public String getDataset() {
+            return dataset;
+        }
+
+        public void setDataset(String dataset) {
+            this.dataset = dataset;
+        }
+
+        public String getViagemPlanejadaTable() {
+            return viagemPlanejadaTable;
+        }
+
+        public void setViagemPlanejadaTable(String viagemPlanejadaTable) {
+            this.viagemPlanejadaTable = viagemPlanejadaTable;
+        }
+
+        public String getShapesGeomTable() {
+            return shapesGeomTable;
+        }
+
+        public void setShapesGeomTable(String shapesGeomTable) {
+            this.shapesGeomTable = shapesGeomTable;
+        }
+
+        public String getLocation() {
+            return location;
+        }
+
+        public void setLocation(String location) {
+            this.location = location;
+        }
+
+        public int getPlannedLookbackDays() {
+            return plannedLookbackDays;
+        }
+
+        public void setPlannedLookbackDays(int plannedLookbackDays) {
+            this.plannedLookbackDays = plannedLookbackDays;
+        }
+    }
+
     public static class Filter {
-        /** GTFS route_type values to include. SPPO = buses (3). */
-        private Set<Integer> routeTypes = Set.of(3);
-        private boolean excludeBrt = true;
-        /** Agencies considered BRT (excluded when exclude-brt=true). */
-        private Set<String> brtAgencyIds = Set.of();
-        /** Line short-name prefixes considered BRT. */
-        private List<String> brtLinePrefixes = List.of();
+        /** SMTR 'modo' values to include (SPPO = Ônibus). Compared case/space-insensitively. */
+        private Set<String> modos = Set.of("Ônibus");
 
-        public Set<Integer> getRouteTypes() {
-            return routeTypes;
+        public Set<String> getModos() {
+            return modos;
         }
 
-        public void setRouteTypes(Set<Integer> routeTypes) {
-            this.routeTypes = routeTypes;
-        }
-
-        public boolean isExcludeBrt() {
-            return excludeBrt;
-        }
-
-        public void setExcludeBrt(boolean excludeBrt) {
-            this.excludeBrt = excludeBrt;
-        }
-
-        public Set<String> getBrtAgencyIds() {
-            return brtAgencyIds;
-        }
-
-        public void setBrtAgencyIds(Set<String> brtAgencyIds) {
-            this.brtAgencyIds = brtAgencyIds;
-        }
-
-        public List<String> getBrtLinePrefixes() {
-            return brtLinePrefixes;
-        }
-
-        public void setBrtLinePrefixes(List<String> brtLinePrefixes) {
-            this.brtLinePrefixes = brtLinePrefixes;
+        public void setModos(Set<String> modos) {
+            this.modos = modos;
         }
     }
 
@@ -156,10 +202,8 @@ public class GtfsProperties {
     }
 
     public static class Feed {
-        /** Human label for the feed source. */
-        private String source = "SMTR/data.rio";
-        /** Fallback feed id when the DB has no feed_info row. Empty = current yyyy-MM. */
-        private String fallbackId = "";
+        /** Human label for the feed source, used as FeedVersion.source. */
+        private String source = "SMTR/BigQuery rj-smtr.planejamento";
 
         public String getSource() {
             return source;
@@ -167,14 +211,6 @@ public class GtfsProperties {
 
         public void setSource(String source) {
             this.source = source;
-        }
-
-        public String getFallbackId() {
-            return fallbackId;
-        }
-
-        public void setFallbackId(String fallbackId) {
-            this.fallbackId = fallbackId;
         }
     }
 }

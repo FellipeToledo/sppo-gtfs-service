@@ -1,37 +1,50 @@
 package com.fajtech.sppogtfs.application.port.out;
 
+import java.time.Instant;
 import java.util.List;
-import java.util.Optional;
 
 /**
- * Outbound port: loads raw GTFS rows from the source database. The application layer
- * builds the in-memory index from these; the port stays free of domain shaping so the
- * persistence adapter can be a thin, testable mapping over the DB.
+ * Outbound port: loads the raw SMTR planning data needed to build the in-memory index.
+ *
+ * <p>Backed in production by BigQuery ({@code rj-smtr.planejamento.*}); a demo adapter
+ * provides an in-memory sample. The application layer stays free of any data technology.
+ *
+ * <p>The join model (real SMTR schema):
+ * <ul>
+ *   <li>{@code viagem_planejada_dia} → which {@code shape_id}s a {@code servico} runs
+ *       (regular + {@code trajetos_alternativos}), with {@code sentido}, {@code evento},
+ *       {@code modo}; carries the current {@code feed_version}.</li>
+ *   <li>{@code shapes_geom} → geometry per {@code shape_id} as a WKT {@code LINESTRING}.</li>
+ * </ul>
  */
 public interface GtfsLoaderPort {
 
-    /** All routes in the feed (unfiltered — the index applies SPPO filters). */
-    List<RawRoute> loadRoutes();
+    /** The feed version currently in effect (from the vigente planned-trips partition). */
+    FeedInfo currentFeed();
 
-    /** All trips carrying a non-null shape_id. */
-    List<RawTrip> loadTrips();
+    /**
+     * Distinct shape references for the current feed: one row per
+     * (servico, shape_id, sentido, evento, modo), with {@code trajetos_alternativos}
+     * already flattened in. Unfiltered by modo — the index applies the SPPO filter.
+     */
+    List<PlannedShapeRef> loadPlannedShapeRefs();
 
-    /** All shape points, unordered (the index sorts by sequence). */
-    List<RawShapePoint> loadShapePoints();
+    /**
+     * Geometry for the current feed's shapes: {@code shape_id} → WKT {@code LINESTRING}
+     * ({@code wkt_shape}), most-recent geometry per shape_id.
+     */
+    List<ShapeGeometry> loadShapeGeometries();
 
-    /** Optional GTFS {@code feed_info} row, if the feed provides one. */
-    Optional<RawFeedInfo> loadFeedInfo();
-
-    record RawRoute(String routeId, String routeShortName, String routeLongName,
-                    Integer routeType, String agencyId) {
+    /** servico → shape_id link with direction/event/mode, from viagem_planejada_dia. */
+    record PlannedShapeRef(String servico, String routeId, String shapeId,
+                           String sentido, String evento, String modo, boolean alternative) {
     }
 
-    record RawTrip(String routeId, String shapeId, Integer directionId, String headsign) {
+    /** shape_id → WKT LINESTRING geometry, from shapes_geom.wkt_shape. */
+    record ShapeGeometry(String shapeId, String wkt) {
     }
 
-    record RawShapePoint(String shapeId, int sequence, double latitude, double longitude) {
-    }
-
-    record RawFeedInfo(String feedVersion, String publisherName, java.time.Instant startDate) {
+    /** feed_version string + its start date (as an instant). */
+    record FeedInfo(String feedVersion, Instant publishedAt) {
     }
 }

@@ -56,7 +56,7 @@ class LineShapesControllerTest {
     }
 
     private LineItinerary itinerary100() {
-        RouteShape shape = RouteShape.of("S100_0", 0, "Praça XV",
+        RouteShape shape = RouteShape.of("S100_0", 0, "I", null,
                 List.of(new Coordinates(-22.90, -43.20), new Coordinates(-22.91, -43.20)));
         return new LineItinerary(LineCode.of("100"), "Rodoviária <-> Praça XV",
                 List.of(shape), FEED, LineItinerary.Resolution.EXACT);

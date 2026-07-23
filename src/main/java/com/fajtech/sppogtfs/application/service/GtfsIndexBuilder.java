@@ -1,168 +1,153 @@
 package com.fajtech.sppogtfs.application.service;
 
-import com.fajtech.sppogtfs.application.port.out.GtfsLoaderPort.RawRoute;
-import com.fajtech.sppogtfs.application.port.out.GtfsLoaderPort.RawShapePoint;
-import com.fajtech.sppogtfs.application.port.out.GtfsLoaderPort.RawTrip;
+import com.fajtech.sppogtfs.application.port.out.GtfsLoaderPort.PlannedShapeRef;
+import com.fajtech.sppogtfs.application.port.out.GtfsLoaderPort.ShapeGeometry;
 import com.fajtech.sppogtfs.domain.Coordinates;
 import com.fajtech.sppogtfs.domain.FeedVersion;
 import com.fajtech.sppogtfs.domain.LineCode;
 import com.fajtech.sppogtfs.domain.RouteShape;
+import com.fajtech.sppogtfs.domain.WktLineString;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
- * Builds an immutable {@link GtfsIndex} from raw GTFS rows, applying SPPO filters and
- * the join/dedup rules of §3 and §5.2. Pure: no Spring, no I/O.
+ * Builds an immutable {@link GtfsIndex} from SMTR planning rows, applying the SPPO
+ * {@code modo} filter and the join/dedup rules. Pure: no Spring, no I/O.
  */
 public final class GtfsIndexBuilder {
 
-    /** SPPO filtering knobs. */
-    public record FilterConfig(Set<Integer> routeTypes, boolean excludeBrt,
-                               Set<String> brtAgencyIds, List<String> brtLinePrefixes) {
+    private static final Logger log = LoggerFactory.getLogger(GtfsIndexBuilder.class);
+
+    /** SPPO filtering knobs. {@code allowedModos} is compared case/space-insensitively. */
+    public record FilterConfig(Set<String> allowedModos) {
         public FilterConfig {
-            routeTypes = routeTypes == null ? Set.of() : Set.copyOf(routeTypes);
-            brtAgencyIds = brtAgencyIds == null ? Set.of() : Set.copyOf(brtAgencyIds);
-            brtLinePrefixes = brtLinePrefixes == null ? List.of() : List.copyOf(brtLinePrefixes);
+            allowedModos = allowedModos == null ? Set.of()
+                    : allowedModos.stream().map(GtfsIndexBuilder::norm).collect(Collectors.toSet());
+        }
+
+        boolean accepts(String modo) {
+            return modo != null && allowedModos.contains(norm(modo));
         }
     }
 
-    public GtfsIndex build(List<RawRoute> routes, List<RawTrip> trips,
-                           List<RawShapePoint> shapePoints, FeedVersion feedVersion,
-                           FilterConfig filter) {
+    public GtfsIndex build(List<PlannedShapeRef> refs, List<ShapeGeometry> geometries,
+                           FeedVersion feedVersion, FilterConfig filter) {
 
-        // 1. Keep only routes matching the SPPO filter, keyed by route_id.
-        Map<String, RawRoute> keptRoutes = new HashMap<>();
-        for (RawRoute r : routes) {
-            if (accept(r, filter)) {
-                keptRoutes.put(r.routeId(), r);
+        // 1. shape_id -> WKT (dedup; last wins).
+        Map<String, String> wktByShape = new HashMap<>();
+        for (ShapeGeometry g : geometries) {
+            if (g.shapeId() != null && g.wkt() != null) {
+                wktByShape.put(g.shapeId(), g.wkt());
             }
         }
 
-        // 2. Order shape points by sequence → domain coordinates.
-        Map<String, List<RawShapePoint>> pointsByShape = new HashMap<>();
-        for (RawShapePoint p : shapePoints) {
-            pointsByShape.computeIfAbsent(p.shapeId(), k -> new ArrayList<>()).add(p);
-        }
-
-        // 3. Trips of kept routes only; group by shape_id and by route_id.
-        //    Track (directionId, headsign) frequency per shape to pick a representative trip.
-        Map<String, Map<DirHeadsign, Integer>> repVotes = new HashMap<>();
-        Map<String, Set<String>> shapesByRoute = new HashMap<>();
-        for (RawTrip t : trips) {
-            if (t.shapeId() == null || !keptRoutes.containsKey(t.routeId())) {
+        // 2. Keep refs whose modo is allowed; vote representative (sentido,evento) per shape_id;
+        //    collect shape_ids per normalized servico.
+        Map<String, Map<SentidoEvento, Integer>> repVotes = new HashMap<>();
+        Map<String, LinkedHashSet<String>> shapesByLine = new HashMap<>();
+        Map<String, String> longNameByLine = new HashMap<>(); // no long name in feed; reserved
+        for (PlannedShapeRef r : refs) {
+            if (r.shapeId() == null || r.servico() == null || !filter.accepts(r.modo())) {
                 continue;
             }
-            shapesByRoute.computeIfAbsent(t.routeId(), k -> new LinkedHashSet<>()).add(t.shapeId());
-            repVotes.computeIfAbsent(t.shapeId(), k -> new HashMap<>())
-                    .merge(new DirHeadsign(t.directionId(), t.headsign()), 1, Integer::sum);
+            LineCode code = LineCode.of(r.servico());
+            shapesByLine.computeIfAbsent(code.value(), k -> new LinkedHashSet<>()).add(r.shapeId());
+            repVotes.computeIfAbsent(r.shapeId(), k -> new HashMap<>())
+                    .merge(new SentidoEvento(r.sentido(), r.evento()), 1, Integer::sum);
         }
 
-        // 4. Build one RouteShape per distinct shape_id (dedup by shape_id).
+        // 3. Build one RouteShape per distinct shape_id that has geometry.
         Map<String, RouteShape> byShapeId = new HashMap<>();
-        for (Map.Entry<String, Map<DirHeadsign, Integer>> e : repVotes.entrySet()) {
+        for (var e : repVotes.entrySet()) {
             String shapeId = e.getKey();
-            List<RawShapePoint> pts = pointsByShape.get(shapeId);
-            if (pts == null || pts.isEmpty()) {
-                continue; // trip references a shape with no geometry; skip
+            String wkt = wktByShape.get(shapeId);
+            if (wkt == null) {
+                log.debug("shape {} referenced by a trip has no geometry; skipping", shapeId);
+                continue;
             }
-            pts.sort(Comparator.comparingInt(RawShapePoint::sequence));
-            List<Coordinates> coords = new ArrayList<>(pts.size());
-            for (RawShapePoint p : pts) {
-                coords.add(new Coordinates(p.latitude(), p.longitude()));
+            try {
+                List<Coordinates> pts = WktLineString.parse(wkt);
+                SentidoEvento rep = representative(e.getValue());
+                byShapeId.put(shapeId, RouteShape.of(shapeId, directionId(rep.sentido()),
+                        rep.sentido(), rep.evento(), pts));
+            } catch (RuntimeException ex) {
+                log.warn("failed to parse geometry for shape {}: {}", shapeId, ex.getMessage());
             }
-            DirHeadsign rep = representative(e.getValue());
-            byShapeId.put(shapeId, RouteShape.of(shapeId, rep.directionId(), rep.headsign(), coords));
         }
 
-        // 5. Assemble line entries: normalized short_name → distinct shapes.
-        //    Merge routes that normalize to the same code.
+        // 4. Assemble line entries: normalized servico -> distinct shapes.
         Map<String, GtfsIndex.LineEntry> byExact = new HashMap<>();
         Map<String, GtfsIndex.LineEntry> byNumeric = new HashMap<>();
-        for (RawRoute r : keptRoutes.values()) {
-            if (r.routeShortName() == null || r.routeShortName().isBlank()) {
-                continue;
-            }
-            LineCode code = LineCode.of(r.routeShortName());
+        for (var e : shapesByLine.entrySet()) {
+            String normalized = e.getKey();
             List<RouteShape> shapes = new ArrayList<>();
-            Set<String> ids = shapesByRoute.getOrDefault(r.routeId(), Set.of());
-            for (String sid : ids) {
+            for (String sid : e.getValue()) {
                 RouteShape s = byShapeId.get(sid);
                 if (s != null) {
                     shapes.add(s);
                 }
             }
-            mergeInto(byExact, code.value(), r.routeLongName(), shapes);
+            GtfsIndex.LineEntry entry =
+                    new GtfsIndex.LineEntry(normalized, longNameByLine.get(normalized), shapes);
+            byExact.put(normalized, entry);
+            LineCode code = LineCode.of(normalized);
             if (code.isNumeric()) {
-                mergeInto(byNumeric, code.numericKey(), r.routeLongName(), shapes);
+                byNumeric.merge(code.numericKey(), entry, GtfsIndexBuilder::mergeEntries);
             }
         }
 
         return new GtfsIndex(byExact, byNumeric, byShapeId, feedVersion);
     }
 
-    private static void mergeInto(Map<String, GtfsIndex.LineEntry> target, String key,
-                                  String longName, List<RouteShape> shapes) {
-        GtfsIndex.LineEntry existing = target.get(key);
-        if (existing == null) {
-            target.put(key, new GtfsIndex.LineEntry(key, longName, dedup(shapes)));
-            return;
-        }
-        List<RouteShape> merged = new ArrayList<>(existing.shapes());
-        merged.addAll(shapes);
-        String name = existing.routeLongName() != null ? existing.routeLongName() : longName;
-        target.put(key, new GtfsIndex.LineEntry(key, name, dedup(merged)));
-    }
-
-    private static List<RouteShape> dedup(List<RouteShape> shapes) {
+    private static GtfsIndex.LineEntry mergeEntries(GtfsIndex.LineEntry a, GtfsIndex.LineEntry b) {
         Map<String, RouteShape> unique = new HashMap<>();
         List<RouteShape> ordered = new ArrayList<>();
-        for (RouteShape s : shapes) {
+        for (RouteShape s : a.shapes()) {
             if (unique.putIfAbsent(s.shapeId(), s) == null) {
                 ordered.add(s);
             }
         }
-        return ordered;
-    }
-
-    private boolean accept(RawRoute r, FilterConfig filter) {
-        if (r.routeType() == null || !filter.routeTypes().contains(r.routeType())) {
-            return false;
-        }
-        if (filter.excludeBrt() && isBrt(r, filter)) {
-            return false;
-        }
-        return true;
-    }
-
-    private boolean isBrt(RawRoute r, FilterConfig filter) {
-        if (r.agencyId() != null && filter.brtAgencyIds().contains(r.agencyId())) {
-            return true;
-        }
-        if (r.routeShortName() != null) {
-            String upper = r.routeShortName().trim().toUpperCase();
-            for (String prefix : filter.brtLinePrefixes()) {
-                if (!prefix.isBlank() && upper.startsWith(prefix.toUpperCase())) {
-                    return true;
-                }
+        for (RouteShape s : b.shapes()) {
+            if (unique.putIfAbsent(s.shapeId(), s) == null) {
+                ordered.add(s);
             }
         }
-        return false;
+        String name = a.routeLongName() != null ? a.routeLongName() : b.routeLongName();
+        return new GtfsIndex.LineEntry(a.normalizedCode(), name, ordered);
     }
 
-    private static DirHeadsign representative(Map<DirHeadsign, Integer> votes) {
+    /** Map SMTR {@code sentido} to a GTFS-style 0/1 when possible, else null. */
+    static Integer directionId(String sentido) {
+        if (sentido == null) {
+            return null;
+        }
+        return switch (sentido.trim().toUpperCase(Locale.ROOT)) {
+            case "I", "IDA", "0" -> 0;
+            case "V", "VOLTA", "1" -> 1;
+            default -> null;
+        };
+    }
+
+    private static SentidoEvento representative(Map<SentidoEvento, Integer> votes) {
         return votes.entrySet().stream()
                 .max(Map.Entry.comparingByValue())
                 .map(Map.Entry::getKey)
-                .orElse(new DirHeadsign(null, null));
+                .orElse(new SentidoEvento(null, null));
     }
 
-    private record DirHeadsign(Integer directionId, String headsign) {
+    private static String norm(String s) {
+        return s == null ? "" : s.trim().toLowerCase(Locale.ROOT);
+    }
+
+    private record SentidoEvento(String sentido, String evento) {
     }
 }

@@ -1,31 +1,22 @@
-# Local dev: the service + a Postgres seeded with a small GTFS sample.
+# Local run of the service.
+#
+# By default this runs the 'demo' profile (in-memory sample loader) so it starts with no
+# BigQuery credentials. To run against real BigQuery, set SPRING_PROFILES_ACTIVE to empty,
+# provide a service-account key, and set the project — see the commented block below.
 services:
-  db:
-    image: postgres:16-alpine
-    environment:
-      POSTGRES_DB: gtfs
-      POSTGRES_USER: gtfs
-      POSTGRES_PASSWORD: gtfs
-    ports:
-      - "5432:5432"
-    volumes:
-      - ./docker/sample-gtfs.sql:/docker-entrypoint-initdb.d/10-sample-gtfs.sql:ro
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U gtfs -d gtfs"]
-      interval: 5s
-      timeout: 3s
-      retries: 10
-
   gtfs-service:
     build: .
-    depends_on:
-      db:
-        condition: service_healthy
     environment:
-      GTFS_DB_URL: jdbc:postgresql://db:5432/gtfs
-      GTFS_DB_USER: gtfs
-      GTFS_DB_PASSWORD: gtfs
-      # GTFS_API_KEY: change-me         # uncomment to require X-Api-Key on /api/**
-      # GTFS_ADMIN_KEY: change-me-admin # required for /internal/reload
+      SPRING_PROFILES_ACTIVE: demo
+      # --- Real BigQuery (comment out the line above and use these) ---
+      # GCP_PROJECT_ID: your-billing-project
+      # GOOGLE_APPLICATION_CREDENTIALS: /secrets/sa.json
+      # GTFS_VIAGEM_TABLE: rj-smtr.planejamento.viagem_planejada_dia
+      # GTFS_SHAPES_TABLE: rj-smtr.planejamento.shapes_geom
+      # BIGQUERY_LOCATION: US
+      # GTFS_API_KEY: change-me
+      # GTFS_ADMIN_KEY: change-me-admin
+    # volumes:
+    #   - ./secrets/sa.json:/secrets/sa.json:ro
     ports:
       - "8080:8080"

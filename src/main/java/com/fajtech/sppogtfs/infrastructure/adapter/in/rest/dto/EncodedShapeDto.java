@@ -8,7 +8,8 @@ import com.fasterxml.jackson.annotation.JsonInclude;
 public record EncodedShapeDto(
         String shapeId,
         Integer directionId,
-        String headsign,
+        String sentido,
+        String evento,
         String encodedPolyline,
         BBoxDto bbox,
         int pointCount,
@@ -18,7 +19,8 @@ public record EncodedShapeDto(
         return new EncodedShapeDto(
                 s.shapeId(),
                 s.directionId(),
-                s.headsign(),
+                s.sentido(),
+                s.evento(),
                 s.encodedPolyline(),
                 BBoxDto.from(s.bbox()),
                 s.pointCount(),

@@ -14,6 +14,6 @@ public record FeedVersionResponse(String id, Instant publishedAt, String source,
                 s.feedVersion().id(),
                 s.feedVersion().publishedAt(),
                 s.feedVersion().source(),
-                Map.of("routes", s.routesIndexed(), "shapes", s.shapesIndexed()));
+                Map.of("lines", s.linesIndexed(), "shapes", s.shapesIndexed()));
     }
 }

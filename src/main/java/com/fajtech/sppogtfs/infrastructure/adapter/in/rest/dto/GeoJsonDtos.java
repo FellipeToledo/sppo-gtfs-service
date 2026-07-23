@@ -30,14 +30,15 @@ public final class GeoJsonDtos {
     }
 
     @JsonInclude(JsonInclude.Include.NON_NULL)
-    public record ShapeProperties(String shapeId, Integer directionId, String headsign,
-                                  int pointCount, double lengthMeters, BBoxDto bbox) {
+    public record ShapeProperties(String shapeId, Integer directionId, String sentido,
+                                  String evento, int pointCount, double lengthMeters,
+                                  BBoxDto bbox) {
     }
 
     @JsonInclude(JsonInclude.Include.NON_NULL)
     public record Feature(String type, LineString geometry, ShapeProperties properties) {
         public static Feature from(RouteShape s) {
-            var props = new ShapeProperties(s.shapeId(), s.directionId(), s.headsign(),
+            var props = new ShapeProperties(s.shapeId(), s.directionId(), s.sentido(), s.evento(),
                     s.pointCount(), Math.round(s.lengthMeters() * 10.0) / 10.0,
                     BBoxDto.from(s.bbox()));
             return new Feature("Feature", LineString.from(s), props);

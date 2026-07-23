@@ -45,6 +45,6 @@ public interface GtfsQueryPort {
                         int shapeCount, FeedVersion feedVersion) {
     }
 
-    record FeedSnapshot(FeedVersion feedVersion, long routesIndexed, long shapesIndexed) {
+    record FeedSnapshot(FeedVersion feedVersion, long linesIndexed, long shapesIndexed) {
     }
 }

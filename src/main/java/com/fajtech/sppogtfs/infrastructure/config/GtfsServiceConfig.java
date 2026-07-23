@@ -28,13 +28,8 @@ public class GtfsServiceConfig {
     @Bean
     public GtfsQueryService gtfsQueryService(GtfsLoaderPort loader, GtfsIndexBuilder builder,
                                              MetricsPort metrics, GtfsProperties props) {
-        var filter = new GtfsIndexBuilder.FilterConfig(
-                props.getFilter().getRouteTypes(),
-                props.getFilter().isExcludeBrt(),
-                props.getFilter().getBrtAgencyIds(),
-                props.getFilter().getBrtLinePrefixes());
-        var settings = new GtfsQueryService.Settings(
-                filter, props.getFeed().getSource(), props.getFeed().getFallbackId());
+        var filter = new GtfsIndexBuilder.FilterConfig(props.getFilter().getModos());
+        var settings = new GtfsQueryService.Settings(filter, props.getFeed().getSource());
         return new GtfsQueryService(loader, builder, metrics, settings);
     }
 }

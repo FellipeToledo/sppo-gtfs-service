@@ -3,13 +3,18 @@ package com.fajtech.sppogtfs.domain;
 import java.util.List;
 
 /**
- * One itinerary polyline. Points are ordered by {@code shape_pt_sequence}.
- * {@code lengthMeters} and {@code bbox} are derived from the points.
+ * One itinerary polyline. Points are ordered as they appear in the source geometry
+ * (SMTR {@code shapes_geom.wkt_shape}). {@code lengthMeters} and {@code bbox} are derived.
+ *
+ * <p>SMTR describes direction with {@code sentido} (e.g. {@code "I"} ida / {@code "V"} volta);
+ * {@code directionId} is the GTFS-style 0/1 mapping when it can be derived. {@code evento}
+ * marks a non-regular / alternative trajectory ({@code null} = regular).
  */
 public record RouteShape(
         String shapeId,
         Integer directionId,
-        String headsign,
+        String sentido,
+        String evento,
         List<Coordinates> points,
         double lengthMeters,
         BoundingBox bbox) {
@@ -24,15 +29,14 @@ public record RouteShape(
         points = List.copyOf(points);
     }
 
-    /**
-     * Build from ordered points, deriving length and bbox.
-     */
-    public static RouteShape of(String shapeId, Integer directionId, String headsign,
-                                List<Coordinates> points) {
+    /** Build from ordered points, deriving length and bbox. */
+    public static RouteShape of(String shapeId, Integer directionId, String sentido,
+                                String evento, List<Coordinates> points) {
         return new RouteShape(
                 shapeId,
                 directionId,
-                headsign,
+                sentido,
+                evento,
                 points,
                 GeoMath.polylineLengthMeters(points),
                 BoundingBox.of(points));
@@ -59,6 +63,6 @@ public record RouteShape(
         if (reduced.size() == points.size()) {
             return this;
         }
-        return RouteShape.of(shapeId, directionId, headsign, reduced);
+        return RouteShape.of(shapeId, directionId, sentido, evento, reduced);
     }
 }

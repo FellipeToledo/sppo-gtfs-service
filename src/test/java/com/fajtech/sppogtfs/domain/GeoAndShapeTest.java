@@ -24,9 +24,10 @@ class GeoAndShapeTest {
                 new Coordinates(-22.90, -43.20),
                 new Coordinates(-22.91, -43.20),
                 new Coordinates(-22.92, -43.19));
-        RouteShape s = RouteShape.of("100_0_1", 0, "Praça XV", pts);
+        RouteShape s = RouteShape.of("100_0_1", 0, "I", null, pts);
 
         assertThat(s.pointCount()).isEqualTo(3);
+        assertThat(s.sentido()).isEqualTo("I");
         assertThat(s.lengthMeters()).isGreaterThan(2000.0);
         assertThat(s.bbox().minLat()).isEqualTo(-22.92);
         assertThat(s.bbox().maxLat()).isEqualTo(-22.90);
