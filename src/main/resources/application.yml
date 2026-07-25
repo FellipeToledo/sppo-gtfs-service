@@ -12,6 +12,8 @@ sppo:
       project-id: ${GCP_PROJECT_ID:}
       viagem-planejada-table: ${GTFS_VIAGEM_TABLE:rj-smtr.planejamento.viagem_planejada_dia}
       shapes-geom-table: ${GTFS_SHAPES_TABLE:rj-smtr.planejamento.shapes_geom}
+      # Where SMTR DEFINES the corridor: 20 m buffer per segment + exclusion flags.
+      segmento-shape-table: ${GTFS_SEGMENTO_TABLE:rj-smtr.planejamento.segmento_shape}
       location: ${BIGQUERY_LOCATION:US}
       planned-lookback-days: ${GTFS_PLANNED_LOOKBACK_DAYS:14}
     filter:

@@ -132,6 +132,7 @@ public class GtfsQueryService implements GtfsQueryPort, ReloadIndexPort {
         GtfsIndex fresh = builder.build(
                 loader.loadPlannedShapeRefs(),
                 loader.loadShapeGeometries(),
+                loader.loadShapeSegments(),
                 feedVersion,
                 settings.filter());
         indexRef.set(fresh); // atomic reference swap — no downtime

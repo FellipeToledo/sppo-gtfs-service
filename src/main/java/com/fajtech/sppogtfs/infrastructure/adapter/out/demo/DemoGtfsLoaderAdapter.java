@@ -49,4 +49,20 @@ public class DemoGtfsLoaderAdapter implements GtfsLoaderPort {
                 new ShapeGeometry("sbrt",
                         "LINESTRING(-43.4000 -22.9500, -43.4100 -22.9600)"));
     }
+
+    /**
+     * Sample segments for one shape only, exercising the exclusion path end to end:
+     * {@code s100i} is split in two, the second one disregarded by SMTR. The other shapes
+     * come back with no segments, which is the legitimate "no exclusions known" case.
+     */
+    @Override
+    public List<ShapeSegment> loadShapeSegments() {
+        return List.of(
+                new ShapeSegment("s100i", "s100i-1",
+                        "LINESTRING(-43.2000 -22.9000, -43.2000 -22.9100)",
+                        1113.0, false, false, false, false),
+                new ShapeSegment("s100i", "s100i-2",
+                        "LINESTRING(-43.2000 -22.9100, -43.1900 -22.9200)",
+                        1500.0, true, true, false, false));
+    }
 }

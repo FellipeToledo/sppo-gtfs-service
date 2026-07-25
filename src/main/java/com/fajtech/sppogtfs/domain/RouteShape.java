@@ -17,7 +17,8 @@ public record RouteShape(
         String evento,
         List<Coordinates> points,
         double lengthMeters,
-        BoundingBox bbox) {
+        BoundingBox bbox,
+        List<RouteSegment> segments) {
 
     public RouteShape {
         if (shapeId == null || shapeId.isBlank()) {
@@ -27,6 +28,7 @@ public record RouteShape(
             throw new IllegalArgumentException("shape must have at least one point: " + shapeId);
         }
         points = List.copyOf(points);
+        segments = segments == null ? List.of() : List.copyOf(segments);
     }
 
     /** Build from ordered points, deriving length and bbox. */
@@ -39,7 +41,23 @@ public record RouteShape(
                 evento,
                 points,
                 GeoMath.polylineLengthMeters(points),
-                BoundingBox.of(points));
+                BoundingBox.of(points),
+                List.of());
+    }
+
+    /**
+     * Same shape with SMTR's segments attached ({@code segmento_shape}). Empty list is the
+     * legitimate "no segmentation known for this shape" case — the consumer then falls back
+     * to the whole polyline, with no exclusions.
+     */
+    public RouteShape withSegments(List<RouteSegment> segments) {
+        return new RouteShape(shapeId, directionId, sentido, evento, points,
+                lengthMeters, bbox, segments);
+    }
+
+    /** Segments SMTR excludes from trip validation (informative count for the payload). */
+    public long disregardedSegmentCount() {
+        return segments.stream().filter(RouteSegment::disregarded).count();
     }
 
     public int pointCount() {
@@ -63,6 +81,10 @@ public record RouteShape(
         if (reduced.size() == points.size()) {
             return this;
         }
-        return RouteShape.of(shapeId, directionId, sentido, evento, reduced);
+        // Segments come from SMTR and are never simplified: they define the corridor and
+        // the exclusions, so reducing their points would change the rule. Simplification
+        // only affects the drawing polyline.
+        return RouteShape.of(shapeId, directionId, sentido, evento, reduced)
+                .withSegments(segments);
     }
 }

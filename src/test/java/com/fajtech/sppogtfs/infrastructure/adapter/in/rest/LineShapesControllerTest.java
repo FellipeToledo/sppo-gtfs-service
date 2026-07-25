@@ -5,6 +5,7 @@ import com.fajtech.sppogtfs.domain.Coordinates;
 import com.fajtech.sppogtfs.domain.FeedVersion;
 import com.fajtech.sppogtfs.domain.LineCode;
 import com.fajtech.sppogtfs.domain.LineItinerary;
+import com.fajtech.sppogtfs.domain.RouteSegment;
 import com.fajtech.sppogtfs.domain.RouteShape;
 import com.fajtech.sppogtfs.infrastructure.config.GtfsProperties;
 import org.junit.jupiter.api.Test;
@@ -74,6 +75,46 @@ class LineShapesControllerTest {
                 .andExpect(jsonPath("$.resolution").value("exact"))
                 .andExpect(jsonPath("$.shapes[0].encodedPolyline").isNotEmpty())
                 .andExpect(jsonPath("$.shapes[0].bbox.minLat").value(-22.91));
+    }
+
+    @Test
+    void shouldExposeSmtrSegmentsWithTheirFlags() throws Exception {
+        // The backend needs the flags to honour SMTR's exclusions (backend docs §4.4).
+        when(query.feedVersion()).thenReturn(FEED);
+        RouteShape shape = RouteShape.of("S100_0", 0, "I", null,
+                        List.of(new Coordinates(-22.90, -43.20), new Coordinates(-22.91, -43.20)))
+                .withSegments(List.of(
+                        new RouteSegment("seg-1", List.of(
+                                new Coordinates(-22.90, -43.20), new Coordinates(-22.905, -43.20)),
+                                556.0, false, false, false, false),
+                        new RouteSegment("seg-2", List.of(
+                                new Coordinates(-22.905, -43.20), new Coordinates(-22.91, -43.20)),
+                                556.0, true, true, false, false)));
+        // Deliberately a different line: the ETag (feedVersion+line+format+simplify) keys the
+        // shared ResponseCache, so reusing "100" would serve another test's cached body.
+        when(query.findLineShapes(eq("300"), anyDouble())).thenReturn(Optional.of(
+                new LineItinerary(LineCode.of("300"), null, List.of(shape), FEED,
+                        LineItinerary.Resolution.EXACT)));
+
+        mvc.perform(get("/api/v1/lines/300/shapes"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.shapes[0].segments.length()").value(2))
+                .andExpect(jsonPath("$.shapes[0].segments[0].segmentId").value("seg-1"))
+                .andExpect(jsonPath("$.shapes[0].segments[0].disregarded").value(false))
+                .andExpect(jsonPath("$.shapes[0].segments[0].encodedPolyline").isNotEmpty())
+                .andExpect(jsonPath("$.shapes[0].segments[1].disregarded").value(true))
+                .andExpect(jsonPath("$.shapes[0].segments[1].tunnel").value(true))
+                .andExpect(jsonPath("$.shapes[0].segments[1].smallSegment").value(false));
+    }
+
+    @Test
+    void shouldServeAnEmptySegmentListWhenTheFeedHasNoSegmentation() throws Exception {
+        when(query.feedVersion()).thenReturn(FEED);
+        when(query.findLineShapes(eq("400"), anyDouble())).thenReturn(Optional.of(itinerary100()));
+
+        mvc.perform(get("/api/v1/lines/400/shapes"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.shapes[0].segments").isEmpty());
     }
 
     @Test

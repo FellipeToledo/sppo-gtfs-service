@@ -35,6 +35,16 @@ public interface GtfsLoaderPort {
      */
     List<ShapeGeometry> loadShapeGeometries();
 
+    /**
+     * Segments of the current feed's shapes, from {@code segmento_shape} — SMTR's own
+     * <i>"shapes segmentados usados na validação de viagens"</i>. Carries the exclusion
+     * flags verbatim; deciding what to do with them is the consumer's business rule.
+     *
+     * <p>May come back empty (older feed, table unavailable): the index then keeps the
+     * whole-shape geometry with no exclusions, which is the previous behaviour.
+     */
+    List<ShapeSegment> loadShapeSegments();
+
     /** servico → shape_id link with direction/event/mode, from viagem_planejada_dia. */
     record PlannedShapeRef(String servico, String routeId, String shapeId,
                            String sentido, String evento, String modo, boolean alternative) {
@@ -42,6 +52,22 @@ public interface GtfsLoaderPort {
 
     /** shape_id → WKT LINESTRING geometry, from shapes_geom.wkt_shape. */
     record ShapeGeometry(String shapeId, String wkt) {
+    }
+
+    /**
+     * One segment of a shape, from {@code segmento_shape}. Flags are the SMTR columns,
+     * <b>as published</b>:
+     * <ul>
+     *   <li>{@code disregarded} — {@code indicador_segmento_desconsiderado}: "deve ser
+     *       desconsiderado na validação de viagens". <b>É o único autoritativo</b>;</li>
+     *   <li>{@code tunnel}, {@code smallSegment}, {@code damagedBuffer} — informativos.
+     *       <b>Não</b> os combine para deduzir exclusão: medido no feed de 2026-07-24,
+     *       77 segmentos estão em túnel e <b>não</b> são desconsiderados pela SMTR.</li>
+     * </ul>
+     */
+    record ShapeSegment(String shapeId, String segmentId, String wkt, double lengthMeters,
+                        boolean disregarded, boolean tunnel, boolean smallSegment,
+                        boolean damagedBuffer) {
     }
 
     /** feed_version string + its start date (as an instant). */

@@ -2,6 +2,9 @@ package com.fajtech.sppogtfs.application.service;
 
 import com.fajtech.sppogtfs.application.port.in.GtfsQueryPort.BatchResult;
 import com.fajtech.sppogtfs.application.port.out.GtfsLoaderPort;
+import com.fajtech.sppogtfs.application.port.out.GtfsLoaderPort.PlannedShapeRef;
+import com.fajtech.sppogtfs.application.port.out.GtfsLoaderPort.ShapeGeometry;
+import com.fajtech.sppogtfs.application.port.out.GtfsLoaderPort.ShapeSegment;
 import com.fajtech.sppogtfs.application.port.out.MetricsPort;
 import com.fajtech.sppogtfs.domain.LineItinerary;
 import org.junit.jupiter.api.BeforeEach;
@@ -108,6 +111,57 @@ class GtfsQueryServiceTest {
         assertThat(result.unresolved()).containsExactly("999");
     }
 
+    private static GtfsQueryService newService(GtfsLoaderPort loader) {
+        var filter = new GtfsIndexBuilder.FilterConfig(Set.of("Ônibus"));
+        var svc = new GtfsQueryService(loader, new GtfsIndexBuilder(), new NoopMetrics(),
+                new GtfsQueryService.Settings(filter, "test"));
+        svc.reload();
+        return svc;
+    }
+
+    @Test
+    void shouldAttachSmtrSegmentsToTheShape() {
+        // Segments arrive from SMTR with the flags as published; the index only attaches them.
+        var loader = new FakeLoader(
+                List.of(new PlannedShapeRef("100", null, "s100i", "I", null, "Ônibus", false)),
+                List.of(new ShapeGeometry("s100i",
+                        "LINESTRING(-43.2000 -22.9000, -43.2000 -22.9100, -43.1900 -22.9200)")),
+                List.of(
+                        new ShapeSegment("s100i", "seg-1",
+                                "LINESTRING(-43.2000 -22.9000, -43.2000 -22.9100)",
+                                1113.0, false, false, false, false),
+                        new ShapeSegment("s100i", "seg-2",
+                                "LINESTRING(-43.2000 -22.9100, -43.1900 -22.9200)",
+                                1500.0, true, true, false, false)));
+        var svc = newService(loader);
+
+        var shapes = svc.findLineShapes("100", 0).orElseThrow().shapes();
+
+        assertThat(shapes).singleElement().satisfies(shape -> {
+            assertThat(shape.segments()).hasSize(2);
+            assertThat(shape.disregardedSegmentCount()).isEqualTo(1);
+            assertThat(shape.segments().get(1).disregarded()).isTrue();
+            assertThat(shape.segments().get(1).tunnel()).isTrue();
+            assertThat(shape.segments().get(0).participatesInValidation()).isTrue();
+        });
+    }
+
+    @Test
+    void shouldSurviveAnUnparseableSegmentWithoutLosingTheShape() {
+        var loader = new FakeLoader(
+                List.of(new PlannedShapeRef("100", null, "s100i", "I", null, "Ônibus", false)),
+                List.of(new ShapeGeometry("s100i",
+                        "LINESTRING(-43.2000 -22.9000, -43.1900 -22.9200)")),
+                List.of(new ShapeSegment("s100i", "ruim", "NAO_E_WKT",
+                        10.0, true, false, false, false)));
+        var svc = newService(loader);
+
+        var shapes = svc.findLineShapes("100", 0).orElseThrow().shapes();
+
+        assertThat(shapes).singleElement().satisfies(shape ->
+                assertThat(shape.segments()).isEmpty());
+    }
+
     @Test
     void feedSnapshotReflectsLoaderFeedAndCounts() {
         var snap = service.feedSnapshot();
@@ -116,8 +170,13 @@ class GtfsQueryServiceTest {
         assertThat(snap.shapesIndexed()).isEqualTo(3); // s100i, s100v, s100alt (sbrt filtered, s200 no geom)
     }
 
-    private record FakeLoader(List<PlannedShapeRef> refs, List<ShapeGeometry> geoms)
-            implements GtfsLoaderPort {
+    private record FakeLoader(List<PlannedShapeRef> refs, List<ShapeGeometry> geoms,
+                             List<ShapeSegment> segments) implements GtfsLoaderPort {
+
+        FakeLoader(List<PlannedShapeRef> refs, List<ShapeGeometry> geoms) {
+            this(refs, geoms, List.of());
+        }
+
         @Override
         public FeedInfo currentFeed() {
             return new FeedInfo("FV-1", Instant.parse("2026-07-19T00:00:00Z"));
@@ -131,6 +190,11 @@ class GtfsQueryServiceTest {
         @Override
         public List<ShapeGeometry> loadShapeGeometries() {
             return geoms;
+        }
+
+        @Override
+        public List<ShapeSegment> loadShapeSegments() {
+            return segments;
         }
     }
 
