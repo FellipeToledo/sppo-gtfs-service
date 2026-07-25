@@ -197,8 +197,15 @@ mvn -B test
   *"segmented shapes used for trip validation"*, and it is where the corridor is **defined**:
   `buffer_completo` = "área de 20 m ao redor do segmento", plus per-segment exclusion flags
   (`indicador_tunel`, `indicador_segmento_desconsiderado`, `indicador_area_prejudicada`,
-  `indicador_segmento_pequeno`). The backend now takes the **20 m width and the flags** from
-  here — its previous ±15 m had no source.
+  `indicador_segmento_pequeno`). The backend takes the **20 m width** from here — its
+  previous ±15 m had no source.
+  - ⚠️ **The exclusion flags do not belong to the corridor test.** They mean "do not use this
+    segment to judge whether the trip was performed" — `indicador_segmento_pequeno` (< 990 m)
+    is the ~1-per-shape remainder of SMTR's ~1 km cut (1,397 small segments for 1,383 shapes,
+    mean 981 m), and a tunnel segment is still route even where GPS is unreliable. Excluding
+    them from the corridor would *create* false OUT_OF_ROUTE, at the end of nearly every line
+    and inside every tunnel. They belong to per-segment trip validation — backend's
+    `docs/regras-de-negocio.md` §11.
   - We serve the **segment lines + flags**, not the buffer geometry. Measured on the current
     feed: the *union* of treated buffers and of complete buffers have **identical area
     (100.00%)** — the treatment removes overlap *between neighbouring segments*, not route
