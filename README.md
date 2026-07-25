@@ -193,5 +193,19 @@ mvn -B test
 
 ## Roadmap
 
-- `segmento_shape` (per-segment 20 m buffers, tunnel/small-segment flags) as an optional endpoint,
-  if the backend wants ready-made corridors instead of computing them from the polyline.
+- **`segmento_shape` — decided, partially adopted (2026-07-25).** This table is SMTR's own
+  *"segmented shapes used for trip validation"*, and it is where the corridor is **defined**:
+  `buffer_completo` = "área de 20 m ao redor do segmento", plus per-segment exclusion flags
+  (`indicador_tunel`, `indicador_segmento_desconsiderado`, `indicador_area_prejudicada`,
+  `indicador_segmento_pequeno`). The backend now takes the **20 m width and the flags** from
+  here — its previous ±15 m had no source.
+  - We serve the **segment lines + flags**, not the buffer geometry. Measured on the current
+    feed: the *union* of treated buffers and of complete buffers have **identical area
+    (100.00%)** — the treatment removes overlap *between neighbouring segments*, not route
+    area — so for the boolean "is it on route?" a ≤ 20 m test against the segment line is
+    equivalent. Cost per shape (WKT): whole shape 7.9 KB · segment lines 13.1 KB (1.65×) ·
+    buffers 119.0 KB (15×), 160.8 MB in total.
+  - ⚠️ The **treated `buffer` becomes mandatory** for per-segment trip validation (counting
+    how many segments a trip covered), because attributing a point to *one* segment is
+    exactly what the treatment disambiguates. Spec kept in the backend's
+    `docs/regras-de-negocio.md` §11.
