@@ -7,7 +7,7 @@ package com.fajtech.sppogtfs.domain;
  * GTFS join fails silently. Algorithm:
  * <ol>
  *   <li>{@code trim} + {@code toUpperCase}.</li>
- *   <li>Exact match against a {@code route_short_name} normalized the same way.</li>
+ *   <li>Exact match against {@code viagem_planejada_dia.servico} normalized the same way.</li>
  *   <li>Relaxed fallback: if the code is purely numeric, compare without leading zeros
  *       ({@code 0100 ≡ 100}). Only used when the exact match fails.</li>
  * </ol>
@@ -25,7 +25,8 @@ public record LineCode(String value, String numericKey) {
     }
 
     /**
-     * Normalize a raw line code (from the GPS feed or from {@code route_short_name}).
+     * Normalize a raw line code (from the GPS feed {@code linha} or from the
+     * BigQuery {@code servico} column).
      */
     public static LineCode of(String raw) {
         if (raw == null) {

@@ -19,7 +19,7 @@
 
     <properties>
         <java.version>21</java.version>
-        <google-cloud-bom.version>26.50.0</google-cloud-bom.version>
+        <google-cloud-bom.version>26.85.1</google-cloud-bom.version>
     </properties>
 
     <dependencies>

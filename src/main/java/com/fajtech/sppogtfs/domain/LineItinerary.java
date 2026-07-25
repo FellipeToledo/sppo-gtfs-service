@@ -7,7 +7,7 @@ import java.util.List;
  *
  * <p>{@code resolution} distinguishes how the line was resolved:
  * <ul>
- *   <li>{@code EXACT} — matched {@code route_short_name} exactly.</li>
+ *   <li>{@code EXACT} — matched {@code servico} exactly.</li>
  *   <li>{@code RELAXED} — matched via the leading-zeros numeric fallback.</li>
  *   <li>{@code NO_SHAPES} — line exists but has no shapes (backend treats as unresolved,
  *       does not drop classification).</li>
