@@ -2,6 +2,7 @@ package com.fajtech.sppogtfs.infrastructure.config;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
+import java.time.Duration;
 import java.util.List;
 import java.util.Set;
 
@@ -140,6 +141,20 @@ public class GtfsProperties {
         private boolean onStartup = true;
         /** Daily reload cron (UTC). */
         private String cron = "0 0 4 * * *";
+        /**
+         * Attempts for the <b>startup</b> load. A transient BigQuery failure would
+         * otherwise leave the index empty until the daily cron. Only the startup load
+         * retries: a failed scheduled reload keeps the previous index (atomic swap), so
+         * there is nothing to recover from.
+         */
+        private int startupAttempts = 3;
+        /**
+         * Wait before the 2nd startup attempt; doubles on each further attempt
+         * (10s → 20s → …). Keep {@code attempts × (load + backoff)} inside the
+         * container healthcheck {@code start-period}, since readiness only flips after
+         * this finishes.
+         */
+        private Duration startupBackoff = Duration.ofSeconds(10);
 
         public boolean isOnStartup() {
             return onStartup;
@@ -155,6 +170,22 @@ public class GtfsProperties {
 
         public void setCron(String cron) {
             this.cron = cron;
+        }
+
+        public int getStartupAttempts() {
+            return startupAttempts;
+        }
+
+        public void setStartupAttempts(int startupAttempts) {
+            this.startupAttempts = startupAttempts;
+        }
+
+        public Duration getStartupBackoff() {
+            return startupBackoff;
+        }
+
+        public void setStartupBackoff(Duration startupBackoff) {
+            this.startupBackoff = startupBackoff;
         }
     }
 

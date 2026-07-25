@@ -8,6 +8,8 @@ import org.springframework.context.event.EventListener;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
+import java.time.Duration;
+
 /**
  * Drives index (re)loads: once on startup (if enabled) and on the configured daily cron.
  * The reload itself is atomic in the service, so scheduled runs never cause downtime.
@@ -45,22 +47,58 @@ public class IndexReloadRunner {
             log.info("Startup index load disabled (sppo.gtfs.reload.on-startup=false)");
             return;
         }
-        safeReload("startup");
+        int attempts = Math.max(1, props.getReload().getStartupAttempts());
+        for (int attempt = 1; attempt <= attempts; attempt++) {
+            if (safeReload("startup", attempt, attempts)) {
+                return;
+            }
+            if (attempt == attempts || !backOff(attempt)) {
+                break;
+            }
+        }
+        // Deliberately does NOT abort startup: with a consumer gated by
+        // `depends_on: service_healthy`, failing here would block the whole stack over a
+        // BigQuery hiccup. The service comes up with an empty index (consumers treat empty
+        // as "no itinerary") and the daily cron retries.
+        log.error("GTFS index is EMPTY after {} startup attempt(s) — serving no geometry "
+                + "until the next scheduled reload ({})", attempts, props.getReload().getCron());
     }
 
     @Scheduled(cron = "${sppo.gtfs.reload.cron:0 0 4 * * *}", zone = "UTC")
     public void scheduledReload() {
-        safeReload("scheduled");
+        // No retry: on failure the previous index stays in place (the swap is atomic).
+        safeReload("scheduled", 1, 1);
     }
 
-    private void safeReload(String trigger) {
+    /** @return true when the load succeeded. */
+    private boolean safeReload(String trigger, int attempt, int attempts) {
         try {
             var result = reload.reload();
             log.info("GTFS index reloaded [{}] feedVersion={} lines={} shapes={} in {}s",
                     trigger, result.feedVersionId(), result.linesIndexed(),
                     result.shapesIndexed(), String.format("%.2f", result.durationSeconds()));
+            return true;
         } catch (Exception e) {
-            log.error("GTFS index reload [{}] failed: {}", trigger, e.getMessage(), e);
+            log.error("GTFS index reload [{} {}/{}] failed: {}",
+                    trigger, attempt, attempts, e.getMessage(), e);
+            return false;
+        }
+    }
+
+    /** Waits this attempt's backoff; false if the thread was interrupted (give up). */
+    private boolean backOff(int attempt) {
+        Duration wait = props.getReload().getStartupBackoff().multipliedBy(1L << (attempt - 1));
+        if (wait.isZero() || wait.isNegative()) {
+            return true;
+        }
+        log.warn("Retrying the startup index load in {}s", wait.toSeconds());
+        try {
+            Thread.sleep(wait.toMillis());
+            return true;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            log.warn("Startup index load interrupted while backing off");
+            return false;
         }
     }
 }

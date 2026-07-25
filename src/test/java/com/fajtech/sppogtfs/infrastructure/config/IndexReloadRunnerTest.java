@@ -6,10 +6,12 @@ import org.springframework.boot.context.event.ApplicationStartedEvent;
 import org.springframework.context.event.EventListener;
 
 import java.lang.reflect.Method;
+import java.time.Duration;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -18,9 +20,20 @@ class IndexReloadRunnerTest {
     private final ReloadIndexPort reload = mock(ReloadIndexPort.class);
 
     private static GtfsProperties propsWithStartupLoad(boolean onStartup) {
+        return props(onStartup, 1);
+    }
+
+    /** Zero backoff: these tests exercise the attempt policy, not the waiting. */
+    private static GtfsProperties props(boolean onStartup, int attempts) {
         GtfsProperties props = new GtfsProperties();
         props.getReload().setOnStartup(onStartup);
+        props.getReload().setStartupAttempts(attempts);
+        props.getReload().setStartupBackoff(Duration.ZERO);
         return props;
+    }
+
+    private static ReloadIndexPort.ReloadResult ok() {
+        return new ReloadIndexPort.ReloadResult("2026-07", 457, 1157, 21.5);
     }
 
     /**
@@ -55,6 +68,40 @@ class IndexReloadRunnerTest {
         new IndexReloadRunner(reload, propsWithStartupLoad(false)).onStartup();
 
         verify(reload, never()).reload();
+    }
+
+    @Test
+    void shouldRetryTheStartupLoadUntilItSucceeds() {
+        when(reload.reload())
+                .thenThrow(new IllegalStateException("BigQuery unavailable"))
+                .thenThrow(new IllegalStateException("BigQuery unavailable"))
+                .thenReturn(ok());
+
+        new IndexReloadRunner(reload, props(true, 3)).onStartup();
+
+        verify(reload, times(3)).reload();
+    }
+
+    @Test
+    void shouldStopAtTheConfiguredAttemptLimitWithoutAborting() {
+        // All attempts fail: the service still comes up (empty index) — aborting here
+        // would block the whole stack, since the consumer waits on `service_healthy`.
+        when(reload.reload()).thenThrow(new IllegalStateException("BigQuery unavailable"));
+
+        new IndexReloadRunner(reload, props(true, 3)).onStartup();
+
+        verify(reload, times(3)).reload();
+    }
+
+    @Test
+    void shouldNotRetryTheScheduledReload() {
+        // A failed scheduled reload keeps the previous index (atomic swap): nothing to
+        // recover, and retrying would only burn BigQuery queries.
+        when(reload.reload()).thenThrow(new IllegalStateException("BigQuery unavailable"));
+
+        new IndexReloadRunner(reload, props(true, 3)).scheduledReload();
+
+        verify(reload, times(1)).reload();
     }
 
     @Test

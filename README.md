@@ -131,6 +131,8 @@ faithful geometry). If used, keep the tolerance conservative (≤ 2 m) — it ch
 | `GTFS_SHAPES_TABLE` | Shape-geometry table | `rj-smtr.planejamento.shapes_geom` |
 | `BIGQUERY_LOCATION` | BigQuery processing location | `US` |
 | `GTFS_PLANNED_LOOKBACK_DAYS` | Days scanned within the current feed (day-type variations) | `14` |
+| `GTFS_RELOAD_STARTUP_ATTEMPTS` | Attempts for the startup index load (transient BigQuery failures) | `3` |
+| `GTFS_RELOAD_STARTUP_BACKOFF` | Wait before the 2nd attempt, doubling per attempt | `10s` |
 | `GTFS_MODOS` | `modo` values included (comma-separated) | `Ônibus` |
 | `GTFS_API_KEY` | `X-Api-Key` required on `/api/**` (empty = public) | *(empty)* |
 | `GTFS_ADMIN_KEY` | `X-Api-Key` required on `/internal/**` | *(empty → /internal closed)* |

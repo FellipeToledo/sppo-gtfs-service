@@ -19,6 +19,11 @@ sppo:
     reload:
       on-startup: true
       cron: "0 0 4 * * *"           # daily 04:00 UTC
+      # Startup load only: a transient BigQuery failure would otherwise leave the index
+      # empty until the cron. Readiness flips after this finishes, so keep the worst case
+      # (attempts x (load + backoff)) inside the healthcheck start-period.
+      startup-attempts: ${GTFS_RELOAD_STARTUP_ATTEMPTS:3}
+      startup-backoff: ${GTFS_RELOAD_STARTUP_BACKOFF:10s}   # doubles per attempt
     api:
       default-format: encoded
       api-key: ${GTFS_API_KEY:}
