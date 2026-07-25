@@ -65,5 +65,15 @@ Three layers, dependencies always pointing inwards:
 - **Tests** live in the same package as the class under test (`*Test.java`), TDD:
   failing test first. The BigQuery adapter is thin and exercised against real
   BigQuery in a deployed environment — there is no local emulator.
-- Test coverage gap to be aware of: only `LineShapesController` has a `@WebMvcTest`;
-  the batch/shape/metadata/feed-version/internal endpoints are untested.
+
+## Two gotchas when writing a `@WebMvcTest` here
+
+1. `WebConfig` is a `WebMvcConfigurer`, so the MVC slice **loads it** — every
+   `@WebMvcTest` must provide a `GtfsProperties` bean or the context fails with
+   `NoSuchBeanDefinitionException`. `ResponseCache` is needed on top of that for the
+   controllers that cache serialized bodies (`LineShapes`, `Shape`).
+2. Because `WebConfig` registers `ApiKeyFilter`, **the key gate runs in the slice too**.
+   `/internal/**` is *closed* when no key is configured, so an admin test must set one.
+   Set it via `@WebMvcTest(properties = "sppo.gtfs.api.admin-key=…")` — **not** with a
+   setter on the `GtfsProperties` bean: it is `@ConfigurationProperties`, so the binder
+   re-binds the instance from the environment and silently wipes programmatic values.

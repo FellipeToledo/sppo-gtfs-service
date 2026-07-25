@@ -173,7 +173,9 @@ mvn -B test
   bbox, haversine, Douglas–Peucker.
 - **Application**: join scenarios — regular + alternate shapes, `sentido`→`directionId`, existing
   line with no geometry (`no_shapes`), leading-zero relaxed fallback, unknown line, `modo` filter.
-- **REST** (`@WebMvcTest`): endpoint contract, `ETag`/`304`, `problem+json`, `no_shapes`, GeoJSON.
+- **REST** (`@WebMvcTest`), one per endpoint: contract, `ETag`/`304`, `problem+json`,
+  `no_shapes`, GeoJSON, batch warmup, input validation, and the `X-Api-Key` gate
+  (`/api/**` open when no key is set; `/internal/**` closed unless a key is configured).
 
 > The BigQuery adapter is thin (query + row mapping) and is exercised against real BigQuery in a
 > deployed environment; there is no local BigQuery emulator in the test suite.
