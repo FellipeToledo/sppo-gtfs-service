@@ -67,6 +67,8 @@ public class GtfsProperties {
         private String viagemPlanejadaTable = "rj-smtr.planejamento.viagem_planejada_dia";
         /** Fully-qualified table for shape geometry. */
         private String shapesGeomTable = "rj-smtr.planejamento.shapes_geom";
+        /** Segmented-shapes table: where SMTR defines the corridor width and exclusion flags. */
+        private String segmentoShapeTable = "rj-smtr.planejamento.segmento_shape";
         /** BigQuery processing location (e.g. US, southamerica-east1). */
         private String location = "US";
         /**
@@ -105,6 +107,14 @@ public class GtfsProperties {
 
         public void setShapesGeomTable(String shapesGeomTable) {
             this.shapesGeomTable = shapesGeomTable;
+        }
+
+        public String getSegmentoShapeTable() {
+            return segmentoShapeTable;
+        }
+
+        public void setSegmentoShapeTable(String segmentoShapeTable) {
+            this.segmentoShapeTable = segmentoShapeTable;
         }
 
         public String getLocation() {

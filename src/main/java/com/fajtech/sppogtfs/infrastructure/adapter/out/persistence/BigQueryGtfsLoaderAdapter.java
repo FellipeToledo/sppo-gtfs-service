@@ -170,6 +170,73 @@ public class BigQueryGtfsLoaderAdapter implements GtfsLoaderPort {
         return out;
     }
 
+    /**
+     * Segments of the current feed's shapes ({@code segmento_shape}) with SMTR's exclusion
+     * flags. Reads the <b>segment line</b> ({@code wkt_segmento}), not the 20 m buffer
+     * geometry: measured on the current feed, the union of treated buffers equals the union
+     * of complete ones (100.00%), so a distance test against the line answers the boolean
+     * "on route?" identically at 1.65x the payload instead of 15x. See the backend's
+     * docs/regras-de-negocio.md §4.4 (and §11 for when the buffers do become necessary).
+     */
+    @Override
+    public List<ShapeSegment> loadShapeSegments() {
+        String viagem = cfg.getViagemPlanejadaTable();
+        String segmentos = cfg.getSegmentoShapeTable();
+        String sql = """
+                WITH latest AS (
+                  SELECT feed_version, MAX(data) OVER () AS max_data
+                  FROM `%1$s`
+                  WHERE data BETWEEN DATE_SUB(CURRENT_DATE(), INTERVAL @lag DAY) AND CURRENT_DATE()
+                  QUALIFY ROW_NUMBER() OVER (ORDER BY data DESC, feed_start_date DESC) = 1
+                ),
+                needed AS (
+                  SELECT DISTINCT shape_id FROM (
+                    SELECT v.shape_id
+                    FROM `%1$s` v, latest l
+                    WHERE v.feed_version = l.feed_version
+                      AND v.data BETWEEN DATE_SUB(l.max_data, INTERVAL @lookback DAY) AND l.max_data
+                      AND v.shape_id IS NOT NULL
+                    UNION ALL
+                    SELECT alt.shape_id
+                    FROM `%1$s` v, latest l, UNNEST(v.trajetos_alternativos) AS alt
+                    WHERE v.feed_version = l.feed_version
+                      AND v.data BETWEEN DATE_SUB(l.max_data, INTERVAL @lookback DAY) AND l.max_data
+                      AND alt.shape_id IS NOT NULL
+                  )
+                )
+                SELECT g.shape_id, g.id_segmento, g.wkt_segmento, g.comprimento_segmento,
+                       g.indicador_segmento_desconsiderado, g.indicador_tunel,
+                       g.indicador_segmento_pequeno, g.indicador_area_prejudicada
+                FROM `%2$s` g
+                JOIN needed n ON n.shape_id = g.shape_id
+                WHERE g.feed_start_date >= DATE_SUB(CURRENT_DATE(), INTERVAL @window DAY)
+                  AND g.wkt_segmento IS NOT NULL
+                QUALIFY ROW_NUMBER() OVER (
+                  PARTITION BY g.shape_id, g.id_segmento ORDER BY g.feed_start_date DESC) = 1
+                """.formatted(viagem, segmentos);
+
+        List<ShapeSegment> out = new ArrayList<>();
+        for (FieldValueList row : run(QueryJobConfiguration.newBuilder(sql)
+                .addNamedParameter("lag", QueryParameterValue.int64(MAX_PARTITION_LAG_DAYS))
+                .addNamedParameter("lookback", QueryParameterValue.int64(cfg.getPlannedLookbackDays()))
+                .addNamedParameter("window", QueryParameterValue.int64(SHAPES_SCAN_WINDOW_DAYS))
+                .build())) {
+            out.add(new ShapeSegment(
+                    str(row, "shape_id"),
+                    str(row, "id_segmento"),
+                    str(row, "wkt_segmento"),
+                    dbl(row, "comprimento_segmento"),
+                    bool(row, "indicador_segmento_desconsiderado"),
+                    bool(row, "indicador_tunel"),
+                    bool(row, "indicador_segmento_pequeno"),
+                    bool(row, "indicador_area_prejudicada")));
+        }
+        long desconsiderados = out.stream().filter(ShapeSegment::disregarded).count();
+        log.info("Loaded {} shape segments from BigQuery ({} disregarded by SMTR)",
+                out.size(), desconsiderados);
+        return out;
+    }
+
     private Iterable<FieldValueList> run(QueryJobConfiguration config) {
         try {
             JobId jobId = JobId.newBuilder()
@@ -209,6 +276,11 @@ public class BigQueryGtfsLoaderAdapter implements GtfsLoaderPort {
     private static String str(FieldValueList row, String name) {
         FieldValue v = row.get(name);
         return v == null || v.isNull() ? null : v.getStringValue();
+    }
+
+    private static double dbl(FieldValueList row, String name) {
+        FieldValue v = row.get(name);
+        return v == null || v.isNull() ? 0.0 : v.getDoubleValue();
     }
 
     private static boolean bool(FieldValueList row, String name) {

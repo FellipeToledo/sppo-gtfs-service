@@ -56,6 +56,15 @@ Rules:
 - `sentido` (`"I"` ida / `"V"` volta) maps to a GTFS-style `directionId` (0/1); `evento` marks a
   non-regular / alternative trajectory (`null` = regular). Both are exposed in the payload.
 - **SPPO filter:** only `modo = 'Ônibus'` (configurable via `sppo.gtfs.filter.modos`).
+- **Segments (`segmento_shape`):** each shape also carries its segments, with SMTR's flags
+  **verbatim** — `disregarded` (`indicador_segmento_desconsiderado`, *"deve ser
+  desconsiderado na validação de viagens"*), plus `tunnel`, `smallSegment` and
+  `damagedBuffer`. We serve the **segment line**, not the 20 m buffer geometry.
+  ⚠️ **This is groundwork for per-segment trip validation** (backend's
+  `docs/regras-de-negocio.md` §11) — it is **not** used by the corridor test. The corridor is
+  the whole shape at 20 m, with no exclusions: a stretch is still itinerary even where SMTR
+  does not validate it as a segment. Excluding tunnel segments or the ~1-per-shape small
+  remainder would create false OUT_OF_ROUTE. A shape with no segments is legitimate.
 - **Feed selection:** the current feed is the `feed_version` of the most recent available `data`
   partition of `viagem_planejada_dia`; planned trips are scanned across a lookback window within
   that feed to capture all day-type variations (Dia Útil / Sábado / Domingo). Geometry is the
@@ -129,6 +138,7 @@ faithful geometry). If used, keep the tolerance conservative (≤ 2 m) — it ch
 | `GCP_PROJECT_ID` | Project used to run/bill the queries | *(ADC default)* |
 | `GTFS_VIAGEM_TABLE` | Planned-trips table | `rj-smtr.planejamento.viagem_planejada_dia` |
 | `GTFS_SHAPES_TABLE` | Shape-geometry table | `rj-smtr.planejamento.shapes_geom` |
+| `GTFS_SEGMENTO_TABLE` | Segmented-shapes table — where SMTR defines the corridor (20 m buffer) and the exclusion flags | `rj-smtr.planejamento.segmento_shape` |
 | `BIGQUERY_LOCATION` | BigQuery processing location | `US` |
 | `GTFS_PLANNED_LOOKBACK_DAYS` | Days scanned within the current feed (day-type variations) | `14` |
 | `GTFS_RELOAD_STARTUP_ATTEMPTS` | Attempts for the startup index load (transient BigQuery failures) | `3` |

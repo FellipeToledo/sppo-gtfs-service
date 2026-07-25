@@ -2,9 +2,11 @@ package com.fajtech.sppogtfs.application.service;
 
 import com.fajtech.sppogtfs.application.port.out.GtfsLoaderPort.PlannedShapeRef;
 import com.fajtech.sppogtfs.application.port.out.GtfsLoaderPort.ShapeGeometry;
+import com.fajtech.sppogtfs.application.port.out.GtfsLoaderPort.ShapeSegment;
 import com.fajtech.sppogtfs.domain.Coordinates;
 import com.fajtech.sppogtfs.domain.FeedVersion;
 import com.fajtech.sppogtfs.domain.LineCode;
+import com.fajtech.sppogtfs.domain.RouteSegment;
 import com.fajtech.sppogtfs.domain.RouteShape;
 import com.fajtech.sppogtfs.domain.WktLineString;
 import org.slf4j.Logger;
@@ -41,6 +43,12 @@ public final class GtfsIndexBuilder {
 
     public GtfsIndex build(List<PlannedShapeRef> refs, List<ShapeGeometry> geometries,
                            FeedVersion feedVersion, FilterConfig filter) {
+        return build(refs, geometries, List.of(), feedVersion, filter);
+    }
+
+    public GtfsIndex build(List<PlannedShapeRef> refs, List<ShapeGeometry> geometries,
+                           List<ShapeSegment> segments, FeedVersion feedVersion,
+                           FilterConfig filter) {
 
         // 1. shape_id -> WKT (dedup; last wins).
         Map<String, String> wktByShape = new HashMap<>();
@@ -48,6 +56,30 @@ public final class GtfsIndexBuilder {
             if (g.shapeId() != null && g.wkt() != null) {
                 wktByShape.put(g.shapeId(), g.wkt());
             }
+        }
+
+        // 1b. shape_id -> SMTR segments, in arrival order. An empty list is legitimate
+        //     (feed with no segmentation for that shape): no exclusions, as before.
+        Map<String, List<RouteSegment>> segmentsByShape = new HashMap<>();
+        int invalidSegments = 0;
+        for (ShapeSegment seg : segments) {
+            if (seg.shapeId() == null || seg.wkt() == null) {
+                invalidSegments++;
+                continue;
+            }
+            try {
+                segmentsByShape.computeIfAbsent(seg.shapeId(), k -> new ArrayList<>())
+                        .add(new RouteSegment(seg.segmentId(), WktLineString.parse(seg.wkt()),
+                                seg.lengthMeters(), seg.disregarded(), seg.tunnel(),
+                                seg.smallSegment(), seg.damagedBuffer()));
+            } catch (RuntimeException ex) {
+                invalidSegments++;
+                log.warn("failed to parse segment {} of shape {}: {}",
+                        seg.segmentId(), seg.shapeId(), ex.getMessage());
+            }
+        }
+        if (invalidSegments > 0) {
+            log.warn("skipped {} of {} segments (unparseable)", invalidSegments, segments.size());
         }
 
         // 2. Keep refs whose modo is allowed; vote representative (sentido,evento) per shape_id;
@@ -77,8 +109,9 @@ public final class GtfsIndexBuilder {
             try {
                 List<Coordinates> pts = WktLineString.parse(wkt);
                 SentidoEvento rep = representative(e.getValue());
-                byShapeId.put(shapeId, RouteShape.of(shapeId, directionId(rep.sentido()),
-                        rep.sentido(), rep.evento(), pts));
+                byShapeId.put(shapeId, RouteShape
+                        .of(shapeId, directionId(rep.sentido()), rep.sentido(), rep.evento(), pts)
+                        .withSegments(segmentsByShape.getOrDefault(shapeId, List.of())));
             } catch (RuntimeException ex) {
                 log.warn("failed to parse geometry for shape {}: {}", shapeId, ex.getMessage());
             }
