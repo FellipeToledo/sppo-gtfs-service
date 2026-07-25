@@ -24,7 +24,11 @@ USER app
 
 EXPOSE 8080
 
-HEALTHCHECK --interval=30s --timeout=3s --start-period=40s --retries=3 \
-    CMD ["sh", "-c", "wget -qO- http://localhost:8080/actuator/health | grep -q '\"status\":\"UP\"'"]
+# Readiness, not plain health: /actuator/health is UP as soon as Spring is up, while the
+# in-memory index is still being built from BigQuery (~20 s). The readiness probe only
+# reports UP after the startup load (see IndexReloadRunner), so a consumer gated by
+# `depends_on: condition: service_healthy` never queries an empty index.
+HEALTHCHECK --interval=15s --timeout=3s --start-period=120s --retries=5 \
+    CMD ["sh", "-c", "wget -qO- http://localhost:8080/actuator/health/readiness | grep -q '\"status\":\"UP\"'"]
 
 ENTRYPOINT ["java", "-XX:MaxRAMPercentage=75.0", "-jar", "/app/app.jar"]
